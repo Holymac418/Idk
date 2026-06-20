@@ -1,12 +1,8 @@
-"""The front-facing GTK3 launcher window.
+"""The front-facing GTK3 launcher window for the Winlator-style Goop mod.
 
-This is the ONLY module that imports PyGObject (``gi``). Importing it on a
-headless box or in CI without ``python3-gi`` will raise ImportError — that's
-intentional. The CLI in ``__main__`` only reaches this module when ``goop``
-is run interactively.
-
-The window is deliberately tiny: three buttons (Diagnose / Install / Play)
-plus a text buffer that prints the diagnostics summary.
+The UI is deliberately small: diagnose, prepare a prefix, and launch Roblox.
+The implementation still uses the original Wine/DXVK/Roblox workflow, but the
+labels and layout now reflect a more Winlator-like container experience.
 """
 
 from __future__ import annotations
@@ -29,32 +25,32 @@ def _import_gtk():
 class GoopWindow:
     def __init__(self, Gtk) -> None:
         self.Gtk = Gtk
-        win = Gtk.Window(title=f"Goop Launcher {__version__}")
-        win.set_default_size(520, 400)
+        win = Gtk.Window(title=f"{config.APP_NAME} {__version__}")
+        win.set_default_size(560, 420)
         win.connect("destroy", Gtk.main_quit)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         outer.set_margin_top(12)
         outer.set_margin_bottom(12)
         outer.set_margin_start(12)
         outer.set_margin_end(12)
         win.add(outer)
 
-        label = Gtk.Label(label=(
-            f"<b>Goop Launcher</b> — Wine {config.WINE_VERSION} + "
-            f"DXVK {config.DXVK_VERSION}\nTarget: {config.TARGET_GPU} "
-            f"(driver ≥ {config.TARGET_DRIVER_MIN}), Vulkan ≥ "
-            f"{config.MIN_VULKAN_API_VERSION[0]}.{config.MIN_VULKAN_API_VERSION[1]}"
+        title = Gtk.Label(label=(
+            f"<b>{config.APP_NAME}</b>\n"
+            f"Winlator-style container workflow for Roblox\n"
+            f"Wine {config.WINE_VERSION} + DXVK {config.DXVK_VERSION}"
         ))
-        label.set_use_markup(True)
-        outer.pack_start(label, False, False, 0)
+        title.set_use_markup(True)
+        title.set_line_wrap(True)
+        outer.pack_start(title, False, False, 0)
 
         btns = Gtk.Box(spacing=8)
         outer.pack_start(btns, False, False, 0)
 
         self.btn_diag = Gtk.Button(label="Diagnose")
-        self.btn_install = Gtk.Button(label="Download & Install")
-        self.btn_play = Gtk.Button(label="Play Roblox")
+        self.btn_install = Gtk.Button(label="Prepare Prefix")
+        self.btn_play = Gtk.Button(label="Launch Roblox")
         for b in (self.btn_diag, self.btn_install, self.btn_play):
             btns.pack_start(b, True, True, 0)
 
@@ -75,7 +71,6 @@ class GoopWindow:
         self.win = win
         self._set_busy(False)
 
-    # ── helpers ──────────────────────────────────────────────────────────────
     def _set_busy(self, busy: bool) -> None:
         for b in (self.btn_diag, self.btn_install, self.btn_play):
             b.set_sensitive(not busy)
@@ -89,33 +84,32 @@ class GoopWindow:
 
         def work() -> None:
             diag = checks.run_all()
-            GLib = self.Gtk  # idle_add lives on the main loop
-            GLib.idle_add(self._finish_diagnose, diag)
+            self.Gtk.idle_add(self._finish_diagnose, diag)
 
         threading.Thread(target=work, daemon=True).start()
 
     def _finish_diagnose(self, diag) -> bool:
         self._log(diag.summary())
         if diag.launchable:
-            self._log("✓ System is ready. Press Play.")
+            self._log("✓ System is ready. Press Launch Roblox.")
         else:
             self._log("✗ Fix the blockers above before launching.")
         self._set_busy(False)
-        return False  # run once
+        return False
 
     def _on_install(self, _btn) -> None:
-        self._log("Downloading Roblox launcher from roblox.com…")
+        self._log("Preparing a Winlator-style prefix…")
         self._set_busy(True)
 
         def work() -> None:
             try:
                 exe = roblox.download_launcher()
                 wine.init_prefix()
-                # DXVK must be staged already by goop-setup; verify it.
                 if not wine.verify_prefix():
                     self.Gtk.idle_add(
-                        self._fail, "Wine prefix is missing DXVK DLLs. "
-                        "Re-run goop-setup.")
+                        self._fail,
+                        "The prefix is missing DXVK DLLs. Re-run the setup flow.",
+                    )
                     return
                 staged = roblox.stage(exe)
                 self.Gtk.idle_add(self._ok_install, staged)
@@ -135,7 +129,7 @@ class GoopWindow:
         return False
 
     def _on_play(self, _btn) -> None:
-        self._log("Launching Roblox under Wine 11.9…")
+        self._log("Launching Roblox under the Winlator-style prefix…")
         self._set_busy(True)
 
         def work() -> None:
@@ -161,7 +155,7 @@ def main() -> int:
         Gtk = _import_gtk()
     except (ImportError, ValueError) as exc:
         sys.stderr.write(
-            f"goop: cannot start GUI: {exc}\n"
+            f"winlator-goop: cannot start GUI: {exc}\n"
             "Install `python3-gi` and `gir1.2-gtk-3.0` (apt), then retry.\n"
         )
         return 2
